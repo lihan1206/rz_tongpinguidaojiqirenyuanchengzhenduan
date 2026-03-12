@@ -1,0 +1,45 @@
+﻿services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: tongcheng
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d tongcheng"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_NAME: 瞳骋轨道机器人远程诊断与维护管理系统
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/tongcheng
+      JWT_SECRET: dev-secret-please-change
+      JWT_EXPIRES_MINUTES: "720"
+      CORS_ALLOW_ORIGINS: http://localhost:3207
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8207:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: /api
+    depends_on:
+      - backend
+    ports:
+      - "3207:80"
+
+volumes:
+  db_data:
