@@ -10,6 +10,7 @@ from app.diagnosis.base import (
 from app.diagnosis.strategies import (
     CurrentDiagnosisStrategy,
     HumidityDiagnosisStrategy,
+    MotorOverloadDiagnosisStrategy,
     PositionDiagnosisStrategy,
     PressureDiagnosisStrategy,
     SpeedDiagnosisStrategy,
@@ -75,3 +76,4 @@ DiagnosisStrategyFactory.register(HumidityDiagnosisStrategy())
 DiagnosisStrategyFactory.register(VoltageDiagnosisStrategy())
 DiagnosisStrategyFactory.register(CurrentDiagnosisStrategy())
 DiagnosisStrategyFactory.register(SpeedDiagnosisStrategy())
+DiagnosisStrategyFactory.register(MotorOverloadDiagnosisStrategy())

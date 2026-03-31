@@ -10,6 +10,8 @@ from app.diagnosis.engine import DiagnosisEngine, DiagnosisStrategyFactory
 from app.diagnosis.strategies import (
     CurrentDiagnosisStrategy,
     HumidityDiagnosisStrategy,
+    MotorOverloadContext,
+    MotorOverloadDiagnosisStrategy,
     PositionDiagnosisStrategy,
     PressureDiagnosisStrategy,
     SpeedDiagnosisStrategy,
@@ -35,4 +37,6 @@ __all__ = [
     "VoltageDiagnosisStrategy",
     "CurrentDiagnosisStrategy",
     "SpeedDiagnosisStrategy",
+    "MotorOverloadDiagnosisStrategy",
+    "MotorOverloadContext",
 ]

@@ -33,6 +33,15 @@ class FaultLogRepository(BaseRepository[FaultLog]):
             self.db.flush()
         return log
 
+    def list_by_robot(self, robot_id: int, limit: int = 100) -> list[FaultLog]:
+        return (
+            self.db.query(FaultLog)
+            .filter(FaultLog.robot_id == robot_id)
+            .order_by(FaultLog.id.desc())
+            .limit(min(limit, 500))
+            .all()
+        )
+
 
 class AlarmNotificationRepository(BaseRepository[AlarmNotification]):
     def __init__(self, db: Session):

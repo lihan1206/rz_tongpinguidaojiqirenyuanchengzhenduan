@@ -13,6 +13,7 @@ class DiagnosisType(str, Enum):
     VOLTAGE = "voltage"
     CURRENT = "current"
     SPEED = "speed"
+    MOTOR_OVERLOAD = "motor_overload"
     CUSTOM = "custom"
 
 

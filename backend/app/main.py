@@ -15,6 +15,7 @@ from app.routers import (
     auth,
     commands,
     configs,
+    diagnosis,
     faults,
     reports,
     robots,
@@ -96,3 +97,4 @@ app.include_router(configs.router, prefix="/api")
 app.include_router(audits.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(diagnosis.router, prefix="/api")
