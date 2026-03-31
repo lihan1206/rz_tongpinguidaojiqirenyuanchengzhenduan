@@ -40,7 +40,7 @@ class VibrationDiagnoseStrategy(DiagnoseStrategy):
                     sensor_data={
                         "sensor_id": sensor_data.sensor_id,
                         "value": vibration,
-                        "timestamp": sensor_data.timestamp.isoformat() if sensor_data.timestamp else None,
+                        "timestamp": sensor_data.ts.isoformat() if sensor_data.ts else None,
                     },
                 )
             )

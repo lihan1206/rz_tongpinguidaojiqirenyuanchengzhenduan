@@ -11,6 +11,10 @@ from app.services.diagnose.strategies.vibration_strategy import (
     vibration_strategy,
     VibrationDiagnoseStrategy,
 )
+from app.services.diagnose.strategies.motor_strategy import (
+    motor_strategy,
+    MotorOverloadDiagnoseStrategy,
+)
 
 __all__ = [
     "DiagnoseStrategy",
@@ -18,7 +22,9 @@ __all__ = [
     "TemperatureDiagnoseStrategy",
     "VibrationDiagnoseStrategy",
     "PositionDiagnoseStrategy",
+    "MotorOverloadDiagnoseStrategy",
     "temperature_strategy",
     "vibration_strategy",
     "position_strategy",
+    "motor_strategy",
 ]

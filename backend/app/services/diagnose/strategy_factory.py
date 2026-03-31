@@ -6,6 +6,7 @@ from app.services.diagnose.strategies import (
     position_strategy,
     temperature_strategy,
     vibration_strategy,
+    motor_strategy,
 )
 
 
@@ -18,6 +19,7 @@ class DiagnoseStrategyFactory:
         self.register(temperature_strategy)
         self.register(vibration_strategy)
         self.register(position_strategy)
+        self.register(motor_strategy)
 
     def register(self, strategy: DiagnoseStrategy) -> None:
         """
