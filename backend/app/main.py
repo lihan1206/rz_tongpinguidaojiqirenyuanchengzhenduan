@@ -1,10 +1,11 @@
-﻿import logging
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
+from app.core.exception_handler import add_exception_handlers
 from app.core.logging import setup_logging
 from app.db.session import SessionLocal
 from app.models.audit import OperationLog
@@ -25,6 +26,9 @@ setup_logging(settings.app_name)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+
+# 注册全局异常处理器
+add_exception_handlers(app)
 
 if settings.cors_allow_origins:
     app.add_middleware(
