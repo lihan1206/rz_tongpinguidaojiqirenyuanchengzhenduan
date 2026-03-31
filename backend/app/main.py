@@ -1,10 +1,11 @@
-﻿import logging
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
+from app.core.error_handler import register_exception_handlers
 from app.core.logging import setup_logging
 from app.db.session import SessionLocal
 from app.models.audit import OperationLog
@@ -24,7 +25,9 @@ from app.routers import (
 setup_logging(settings.app_name)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version="0.2.0")
+
+register_exception_handlers(app)
 
 if settings.cors_allow_origins:
     app.add_middleware(
@@ -43,10 +46,8 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
             user_id = None
             auth_header = request.headers.get("authorization") or ""
-            # 不在中间件做强鉴权，仅用于审计记录
             if auth_header.lower().startswith("bearer "):
                 token = auth_header.split(" ", 1)[1].strip()
-                # 延迟导入，避免启动时循环依赖
                 from jose import JWTError, jwt
 
                 try:
