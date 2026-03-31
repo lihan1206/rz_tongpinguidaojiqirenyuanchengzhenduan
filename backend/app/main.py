@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +14,7 @@ from app.routers import (
     auth,
     commands,
     configs,
+    diagnosis,
     faults,
     reports,
     robots,
@@ -88,6 +89,7 @@ def health():
 app.include_router(auth.router, prefix="/api")
 app.include_router(robots.router, prefix="/api")
 app.include_router(sensors.router, prefix="/api")
+app.include_router(diagnosis.router, prefix="/api")
 app.include_router(faults.router, prefix="/api")
 app.include_router(commands.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")
