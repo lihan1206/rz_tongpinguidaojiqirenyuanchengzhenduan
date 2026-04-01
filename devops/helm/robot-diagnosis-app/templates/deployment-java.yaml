@@ -1,0 +1,95 @@
+{{- if .Values.javaService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "robot-diagnosis.fullname" . }}-java-service
+  labels:
+    {{- include "robot-diagnosis.java.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.javaService.autoscaling.enabled }}
+  replicas: {{ .Values.javaService.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "robot-diagnosis.java.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+      labels:
+        {{- include "robot-diagnosis.java.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "robot-diagnosis.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: java-service
+          image: "{{ .Values.javaService.image.repository }}:{{ .Values.javaService.image.tag }}"
+          imagePullPolicy: {{ .Values.javaService.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.javaService.service.targetPort }}
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+          env:
+            {{- range .Values.javaService.env }}
+            - name: {{ .name }}
+              {{- if .value }}
+              value: {{ .value | quote }}
+              {{- else if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- end }}
+            {{- end }}
+            - name: JAVA_OPTS
+              value: "-Xmx1g -Xms512m -XX:+UseG1GC"
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8081"
+          {{- if .Values.javaService.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.javaService.livenessProbe.path }}
+              port: management
+            initialDelaySeconds: {{ .Values.javaService.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.javaService.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.javaService.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.javaService.readinessProbe.path }}
+              port: management
+            initialDelaySeconds: {{ .Values.javaService.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.javaService.readinessProbe.periodSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.javaService.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

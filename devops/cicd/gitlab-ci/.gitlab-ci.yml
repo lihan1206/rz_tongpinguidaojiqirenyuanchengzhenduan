@@ -1,0 +1,495 @@
+# GitLab CI/CD Pipeline for Robot Diagnosis System
+# Features: Build, Test, Security Scan, Deploy with Canary
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_VERIFY: 1
+  DOCKER_CERT_PATH: /certs/client
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# Pipeline Stages
+stages:
+  - build
+  - test
+  - security-sast
+  - security-dependency
+  - security-container
+  - quality
+  - package
+  - deploy-dev
+  - deploy-staging
+  - dast
+  - deploy-production
+
+# Cache Configuration
+cache:
+  paths:
+    - .m2/repository
+    - node_modules/
+    - .cache/pip
+
+# ==========================================
+# 全局模板
+# ==========================================
+.docker-login: &docker-login
+  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+.kubectl-config: &kubectl-config
+  - apk add --no-cache curl bash
+  - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+  - chmod +x kubectl && mv kubectl /usr/local/bin/
+  - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+.aws-config: &aws-config
+  - apk add --no-cache python3 py3-pip
+  - pip install awscli
+  - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+  - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+  - aws configure set region $AWS_REGION
+  - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+
+# ==========================================
+# 构建阶段
+# ==========================================
+build-backend:
+  stage: build
+  image: python:3.11-slim
+  script:
+    - cd backend
+    - pip install -r requirements.txt
+    - python -m compileall app/
+  artifacts:
+    paths:
+      - backend/
+    expire_in: 1 hour
+
+build-frontend:
+  stage: build
+  image: node:20-alpine
+  script:
+    - cd frontend
+    - npm ci --cache .npm --prefer-offline
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+
+build-java:
+  stage: build
+  image: maven:3.9-eclipse-temurin-17-alpine
+  script:
+    - cd refactored-java
+    - mvn clean compile -DskipTests
+  artifacts:
+    paths:
+      - refactored-java/target/
+    expire_in: 1 hour
+
+# ==========================================
+# 测试阶段
+# ==========================================
+test-backend:
+  stage: test
+  image: python:3.11-slim
+  needs: [build-backend]
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  script:
+    - cd backend
+    - pip install -r requirements.txt
+    - pip install pytest pytest-cov
+    - pytest --cov=app --cov-report=xml --cov-report=term
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage.xml
+      junit: backend/junit-report.xml
+    paths:
+      - backend/coverage.xml
+    expire_in: 1 week
+
+test-frontend:
+  stage: test
+  image: node:20-alpine
+  needs: [build-frontend]
+  script:
+    - cd frontend
+    - npm ci
+    - npm run test -- --coverage --watchAll=false
+  artifacts:
+    reports:
+      junit: frontend/junit.xml
+    paths:
+      - frontend/coverage/
+    expire_in: 1 week
+
+test-java:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17-alpine
+  needs: [build-java]
+  script:
+    - cd refactored-java
+    - mvn test
+    - mvn jacoco:report
+  artifacts:
+    reports:
+      junit: refactored-java/target/surefire-reports/*.xml
+    paths:
+      - refactored-java/target/site/jacoco/
+    expire_in: 1 week
+
+# ==========================================
+# SAST 安全扫描
+# ==========================================
+sast-semgrep:
+  stage: security-sast
+  image: returntocorp/semgrep
+  script:
+    - semgrep --config=auto --json --output=semgrep-report.json .
+    - semgrep --config=auto --sarif --output=semgrep-report.sarif .
+  artifacts:
+    reports:
+      sast: semgrep-report.json
+    paths:
+      - semgrep-report.json
+      - semgrep-report.sarif
+    expire_in: 1 week
+  allow_failure: true
+
+sast-bandit:
+  stage: security-sast
+  image: python:3.11-slim
+  script:
+    - pip install bandit
+    - bandit -r backend/app -f json -o bandit-report.json || true
+    - bandit -r backend/app -f xml -o bandit-report.xml || true
+  artifacts:
+    reports:
+      sast: bandit-report.json
+    paths:
+      - bandit-report.json
+      - bandit-report.xml
+    expire_in: 1 week
+  allow_failure: true
+
+# ==========================================
+# 依赖安全扫描
+# ==========================================
+dependency-check-trivy:
+  stage: security-dependency
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --scanners vuln,secret,config --format sarif -o trivy-fs-report.sarif .
+    - trivy fs --scanners vuln --format json -o trivy-fs-report.json .
+  artifacts:
+    reports:
+      dependency_scanning: trivy-fs-report.json
+    paths:
+      - trivy-fs-report.sarif
+      - trivy-fs-report.json
+    expire_in: 1 week
+  allow_failure: true
+
+dependency-check-java:
+  stage: security-dependency
+  image: maven:3.9-eclipse-temurin-17-alpine
+  script:
+    - cd refactored-java
+    - mvn org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=11
+  artifacts:
+    paths:
+      - refactored-java/target/dependency-check-report.html
+    expire_in: 1 week
+  allow_failure: true
+
+# ==========================================
+# 代码质量分析
+# ==========================================
+sonarqube-check:
+  stage: quality
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner
+      -Dsonar.projectKey=${CI_PROJECT_PATH_SLUG}
+      -Dsonar.projectName="${CI_PROJECT_NAME}"
+      -Dsonar.sources=backend/app,frontend/src,refactored-java/src/main
+      -Dsonar.tests=refactored-java/src/test
+      -Dsonar.host.url=${SONAR_HOST_URL}
+      -Dsonar.login=${SONAR_TOKEN}
+      -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+      -Dsonar.java.binaries=refactored-java/target/classes
+  allow_failure: true
+
+# ==========================================
+# 打包 Docker 镜像
+# ==========================================
+docker-build-backend:
+  stage: package
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  needs: [test-backend, sast-semgrep, dependency-check-trivy]
+  before_script:
+    - *docker-login
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE/backend:latest backend/
+    - docker push $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+  only:
+    - main
+    - develop
+    - tags
+
+docker-build-frontend:
+  stage: package
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  needs: [test-frontend, sast-semgrep, dependency-check-trivy]
+  before_script:
+    - *docker-login
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE/frontend:latest frontend/
+    - docker push $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+  only:
+    - main
+    - develop
+    - tags
+
+docker-build-java:
+  stage: package
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  needs: [test-java, sast-semgrep, dependency-check-trivy]
+  before_script:
+    - *docker-login
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/java-service:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE/java-service:latest refactored-java/
+    - docker push $CI_REGISTRY_IMAGE/java-service:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/java-service:latest
+  only:
+    - main
+    - develop
+    - tags
+
+# ==========================================
+# 容器镜像安全扫描
+# ==========================================
+container-scan-backend:
+  stage: security-container
+  image: aquasec/trivy:latest
+  needs: [docker-build-backend]
+  script:
+    - trivy image --format sarif -o trivy-backend.sarif $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA
+    - trivy image --format json -o trivy-backend.json $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: trivy-backend.json
+    paths:
+      - trivy-backend.sarif
+    expire_in: 1 week
+  allow_failure: true
+
+container-scan-frontend:
+  stage: security-container
+  image: aquasec/trivy:latest
+  needs: [docker-build-frontend]
+  script:
+    - trivy image --format sarif -o trivy-frontend.sarif $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA
+    - trivy image --format json -o trivy-frontend.json $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: trivy-frontend.json
+    paths:
+      - trivy-frontend.sarif
+    expire_in: 1 week
+  allow_failure: true
+
+container-scan-java:
+  stage: security-container
+  image: aquasec/trivy:latest
+  needs: [docker-build-java]
+  script:
+    - trivy image --format sarif -o trivy-java.sarif $CI_REGISTRY_IMAGE/java-service:$CI_COMMIT_SHA
+    - trivy image --format json -o trivy-java.json $CI_REGISTRY_IMAGE/java-service:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: trivy-java.json
+    paths:
+      - trivy-java.sarif
+    expire_in: 1 week
+  allow_failure: true
+
+# ==========================================
+# 部署到开发环境
+# ==========================================
+deploy-dev:
+  stage: deploy-dev
+  image: alpine/k8s:latest
+  needs: [container-scan-backend, container-scan-frontend, container-scan-java]
+  environment:
+    name: development
+    url: https://dev.robot-diagnosis.example.com
+  before_script:
+    - *kubectl-config
+    - *aws-config
+  script:
+    - helm upgrade --install robot-diagnosis-dev ./devops/helm/robot-diagnosis-app
+      --namespace dev
+      --create-namespace
+      --set global.environment=dev
+      --set backend.image.repository=$CI_REGISTRY_IMAGE/backend
+      --set backend.image.tag=$CI_COMMIT_SHA
+      --set frontend.image.repository=$CI_REGISTRY_IMAGE/frontend
+      --set frontend.image.tag=$CI_COMMIT_SHA
+      --set javaService.image.repository=$CI_REGISTRY_IMAGE/java-service
+      --set javaService.image.tag=$CI_COMMIT_SHA
+      --set ingress.host=dev.robot-diagnosis.example.com
+      --wait --timeout 10m
+    - kubectl rollout status deployment/backend -n dev
+    - kubectl rollout status deployment/frontend -n dev
+    - kubectl rollout status deployment/java-service -n dev
+  only:
+    - develop
+
+# ==========================================
+# 部署到测试环境
+# ==========================================
+deploy-staging:
+  stage: deploy-staging
+  image: alpine/k8s:latest
+  needs: [container-scan-backend, container-scan-frontend, container-scan-java]
+  environment:
+    name: staging
+    url: https://staging.robot-diagnosis.example.com
+  before_script:
+    - *kubectl-config
+    - *aws-config
+  script:
+    - helm upgrade --install robot-diagnosis-staging ./devops/helm/robot-diagnosis-app
+      --namespace staging
+      --create-namespace
+      --set global.environment=staging
+      --set backend.image.repository=$CI_REGISTRY_IMAGE/backend
+      --set backend.image.tag=$CI_COMMIT_SHA
+      --set frontend.image.repository=$CI_REGISTRY_IMAGE/frontend
+      --set frontend.image.tag=$CI_COMMIT_SHA
+      --set javaService.image.repository=$CI_REGISTRY_IMAGE/java-service
+      --set javaService.image.tag=$CI_COMMIT_SHA
+      --set ingress.host=staging.robot-diagnosis.example.com
+      --set replicaCount=2
+      --wait --timeout 10m
+    - kubectl rollout status deployment/backend -n staging
+    - kubectl rollout status deployment/frontend -n staging
+    - kubectl rollout status deployment/java-service -n staging
+    - curl -f https://staging.robot-diagnosis.example.com/health || exit 1
+  only:
+    - main
+
+# ==========================================
+# DAST 动态安全测试
+# ==========================================
+dast-scan:
+  stage: dast
+  image: owasp/zap2docker-stable:latest
+  needs: [deploy-staging]
+  script:
+    - mkdir /zap/wrk/
+    - zap-full-scan.py -t https://staging.robot-diagnosis.example.com -g gen.conf -r dast-report.html -J dast-report.json
+  artifacts:
+    reports:
+      dast: dast-report.json
+    paths:
+      - dast-report.html
+    expire_in: 1 week
+  allow_failure: true
+  only:
+    - main
+
+# ==========================================
+# 灰度发布到生产环境
+# ==========================================
+deploy-production-canary:
+  stage: deploy-production
+  image: alpine/k8s:latest
+  needs: [deploy-staging, dast-scan]
+  environment:
+    name: production
+    url: https://robot-diagnosis.example.com
+  when: manual
+  before_script:
+    - *kubectl-config
+    - *aws-config
+  script:
+    # Canary Deployment - 10% traffic
+    - helm upgrade --install robot-diagnosis-prod ./devops/helm/robot-diagnosis-app
+      --namespace production
+      --create-namespace
+      --set global.environment=production
+      --set backend.image.repository=$CI_REGISTRY_IMAGE/backend
+      --set backend.image.tag=$CI_COMMIT_SHA
+      --set frontend.image.repository=$CI_REGISTRY_IMAGE/frontend
+      --set frontend.image.tag=$CI_COMMIT_SHA
+      --set javaService.image.repository=$CI_REGISTRY_IMAGE/java-service
+      --set javaService.image.tag=$CI_COMMIT_SHA
+      --set ingress.host=robot-diagnosis.example.com
+      --set canary.enabled=true
+      --set canary.weight=10
+      --set replicaCount=3
+      --wait --timeout 10m
+    # Monitor for 5 minutes
+    - echo "Monitoring canary deployment..."
+    - sleep 300
+    # Promote to 100% traffic
+    - helm upgrade --install robot-diagnosis-prod ./devops/helm/robot-diagnosis-app
+      --namespace production
+      --set global.environment=production
+      --set backend.image.repository=$CI_REGISTRY_IMAGE/backend
+      --set backend.image.tag=$CI_COMMIT_SHA
+      --set frontend.image.repository=$CI_REGISTRY_IMAGE/frontend
+      --set frontend.image.tag=$CI_COMMIT_SHA
+      --set javaService.image.repository=$CI_REGISTRY_IMAGE/java-service
+      --set javaService.image.tag=$CI_COMMIT_SHA
+      --set ingress.host=robot-diagnosis.example.com
+      --set canary.enabled=false
+      --set replicaCount=5
+      --wait --timeout 10m
+    - kubectl rollout status deployment/backend -n production
+    - kubectl rollout status deployment/frontend -n production
+    - kubectl rollout status deployment/java-service -n production
+  only:
+    - tags
+
+# ==========================================
+# 回滚任务
+# ==========================================
+rollback-production:
+  stage: deploy-production
+  image: alpine/k8s:latest
+  when: manual
+  before_script:
+    - *kubectl-config
+    - *aws-config
+  script:
+    - helm rollback robot-diagnosis-prod 0 -n production
+    - kubectl rollout status deployment/backend -n production
+    - kubectl rollout status deployment/frontend -n production
+    - kubectl rollout status deployment/java-service -n production
+  only:
+    - tags
+  environment:
+    name: production
+    url: https://robot-diagnosis.example.com

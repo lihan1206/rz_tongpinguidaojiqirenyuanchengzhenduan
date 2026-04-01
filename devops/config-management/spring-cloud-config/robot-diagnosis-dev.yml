@@ -1,0 +1,93 @@
+# ==========================================
+# Development Environment Configuration
+# ==========================================
+
+spring:
+  # Database Configuration
+  datasource:
+    url: jdbc:mysql://localhost:3306/robot_diagnosis_dev?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: dev_user
+    password: dev_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  
+  # Redis Configuration
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    database: 1
+  
+  # DevTools
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: DEBUG
+    com.tongping.robot: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) - %msg%n"
+
+# Security Configuration
+security:
+  jwt:
+    secret: dev-jwt-secret-key-do-not-use-in-production
+    expiration: 86400000
+  
+  cors:
+    allowed-origins: "*"
+    allowed-methods: "*"
+    allowed-headers: "*"
+    allow-credentials: false
+
+# Feature Flags
+features:
+  real-time-monitoring:
+    enabled: true
+  ai-diagnosis:
+    enabled: true
+  predictive-maintenance:
+    enabled: true
+  advanced-analytics:
+    enabled: true
+  multi-tenant:
+    enabled: false
+
+# External Services
+external:
+  ai-service:
+    url: http://localhost:5000
+    timeout-seconds: 60
+    retry-attempts: 1
+
+# Business Configuration
+business:
+  diagnosis:
+    max-concurrent-analysis: 5
+    analysis-timeout-seconds: 600
+    confidence-threshold: 0.60
+
+# Monitoring
+monitoring:
+  enabled: true
+  metrics-export-interval: 30000
+  health-check-interval: 10000

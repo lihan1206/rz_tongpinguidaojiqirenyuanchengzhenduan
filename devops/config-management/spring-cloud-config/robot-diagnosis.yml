@@ -1,0 +1,208 @@
+# ==========================================
+# Default Configuration for Robot Diagnosis System
+# ==========================================
+
+# Application Info
+app:
+  name: Robot Diagnosis System
+  version: 1.0.0
+  description: Intelligent fault diagnosis system for industrial robots
+
+# Server Configuration
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/plain
+
+# Spring Configuration
+spring:
+  application:
+    name: robot-diagnosis
+  
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: false
+    deserialization:
+      fail-on-unknown-properties: false
+  
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+  
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000
+      cache-null-values: false
+  
+  # Session Configuration
+  session:
+    store-type: redis
+    timeout: 30m
+    redis:
+      namespace: robot-diagnosis:session
+
+# Database Configuration
+spring:
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      pool-name: RobotDiagnosisHikariPool
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      connection-timeout: 20000
+      connection-test-query: SELECT 1
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+
+# Redis Configuration
+spring:
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+      shutdown-timeout: 100ms
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.tongping.robot: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/robot-diagnosis.log
+    max-size: 100MB
+    max-history: 30
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info,metrics,prometheus,env,configprops,loggers,threaddump,heapdump
+  endpoint:
+    health:
+      show-details: when_authorized
+      show-components: when_authorized
+      probes:
+        enabled: true
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+    build:
+      enabled: true
+
+# Security Configuration
+security:
+  jwt:
+    secret: ${JWT_SECRET:your-jwt-secret-key}
+    expiration: 86400000  # 24 hours
+    refresh-expiration: 604800000  # 7 days
+  
+  cors:
+    allowed-origins: "*"
+    allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+  
+  rate-limiting:
+    enabled: true
+    requests-per-second: 100
+    burst-capacity: 200
+
+# Feature Flags
+features:
+  real-time-monitoring:
+    enabled: true
+  ai-diagnosis:
+    enabled: true
+  predictive-maintenance:
+    enabled: false
+  advanced-analytics:
+    enabled: true
+  multi-tenant:
+    enabled: false
+
+# Business Configuration
+business:
+  diagnosis:
+    max-concurrent-analysis: 10
+    analysis-timeout-seconds: 300
+    confidence-threshold: 0.75
+  
+  notification:
+    enabled: true
+    channels:
+      - email
+      - sms
+      - webhook
+    
+  report:
+    generation-timeout-seconds: 60
+    max-report-size-mb: 50
+
+# External Services
+external:
+  ai-service:
+    url: ${AI_SERVICE_URL:http://localhost:5000}
+    timeout-seconds: 30
+    retry-attempts: 3
+  
+  notification-service:
+    url: ${NOTIFICATION_SERVICE_URL:http://localhost:8081}
+    timeout-seconds: 10
+
+# Monitoring
+monitoring:
+  enabled: true
+  metrics-export-interval: 60000
+  health-check-interval: 30000

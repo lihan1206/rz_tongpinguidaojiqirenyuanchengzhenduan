@@ -1,0 +1,65 @@
+{{- if .Values.canary.enabled }}
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: {{ include "robot-diagnosis.fullname" . }}-backend
+  labels:
+    {{- include "robot-diagnosis.backend.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "robot-diagnosis.fullname" . }}-backend
+  service:
+    port: {{ .Values.backend.service.port }}
+    targetPort: {{ .Values.backend.service.targetPort }}
+    gateways:
+      - {{ include "robot-diagnosis.fullname" . }}
+    hosts:
+      - {{ .Values.ingress.host }}
+  analysis:
+    interval: {{ .Values.canary.analysis.interval }}
+    threshold: {{ .Values.canary.analysis.threshold }}
+    maxWeight: {{ .Values.canary.weight }}
+    stepWeight: {{ div .Values.canary.weight 2 }}
+    {{- if .Values.canary.analysis.metrics }}
+    metrics:
+      {{- range .Values.canary.analysis.metrics }}
+      - name: {{ .name }}
+        thresholdRange:
+          {{- if .thresholdRange.min }}
+          min: {{ .thresholdRange.min }}
+          {{- end }}
+          {{- if .thresholdRange.max }}
+          max: {{ .thresholdRange.max }}
+          {{- end }}
+        interval: {{ .interval }}
+      {{- end }}
+    {{- end }}
+    webhooks:
+      - name: load-test
+        type: pre-rollout
+        url: http://flagger-loadtester.test/
+        timeout: 5s
+        metadata:
+          cmd: "hey -z 1m -q 10 -c 2 http://{{ include "robot-diagnosis.fullname" . }}-backend-canary.{{ .Release.Namespace }}:{{ .Values.backend.service.port }}/health"
+      - name: conformance-test
+        type: pre-rollout
+        url: http://flagger-loadtester.test/
+        timeout: 30s
+        metadata:
+          type: bash
+          cmd: "curl -sf http://{{ include "robot-diagnosis.fullname" . }}-backend-canary.{{ .Release.Namespace }}:{{ .Values.backend.service.port }}/api/health"
+      - name: notify-slack
+        type: event
+        url: http://flagger-loadtester.test/
+        timeout: 5s
+        metadata:
+          type: slack
+          channel: deployments
+          username: flagger
+  {{- if .Values.canary.rollback }}
+  rollback:
+    {{- toYaml .Values.canary.rollback | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,195 @@
+# ==========================================
+# Production Environment Configuration
+# ==========================================
+
+spring:
+  # Database Configuration
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME:robot_diagnosis}?useSSL=true&serverTimezone=UTC&requireSSL=true&verifyServerCertificate=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+  
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+        cache:
+          use_second_level_cache: true
+          use_query_cache: true
+          region:
+            factory_class: org.hibernate.cache.ehcache.EhCacheRegionFactory
+  
+  # Redis Configuration
+  redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD}
+    database: 0
+    ssl: true
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 25
+        min-idle: 10
+        max-wait: 3000ms
+      shutdown-timeout: 200ms
+  
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000  # 30 minutes
+      cache-null-values: false
+      use-key-prefix: true
+      key-prefix: "robot-diagnosis:cache:"
+
+# Logging Configuration
+logging:
+  level:
+    root: WARN
+    com.tongping.robot: INFO
+    org.springframework.web: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /var/log/robot-diagnosis/application.log
+    max-size: 500MB
+    max-history: 90
+  
+  # Logstash configuration for centralized logging
+  logstash:
+    host: ${LOGSTASH_HOST:localhost}
+    port: 5000
+    enabled: true
+
+# Security Configuration
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration: 3600000  # 1 hour
+    refresh-expiration: 86400000  # 24 hours
+  
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://robot-diagnosis.example.com}
+    allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+    allowed-headers: Authorization,Content-Type,X-Requested-With,Accept,Origin
+    allow-credentials: true
+    max-age: 3600
+  
+  rate-limiting:
+    enabled: true
+    requests-per-second: 50
+    burst-capacity: 100
+  
+  headers:
+    content-security-policy: "default-src 'self'"
+    x-frame-options: DENY
+    x-content-type-options: nosniff
+    x-xss-protection: 1; mode=block
+    strict-transport-security: max-age=31536000; includeSubDomains
+
+# Feature Flags
+features:
+  real-time-monitoring:
+    enabled: true
+  ai-diagnosis:
+    enabled: true
+  predictive-maintenance:
+    enabled: true
+  advanced-analytics:
+    enabled: true
+  multi-tenant:
+    enabled: true
+
+# Business Configuration
+business:
+  diagnosis:
+    max-concurrent-analysis: 50
+    analysis-timeout-seconds: 180
+    confidence-threshold: 0.85
+  
+  notification:
+    enabled: true
+    channels:
+      - email
+      - sms
+      - webhook
+      - slack
+    
+  report:
+    generation-timeout-seconds: 30
+    max-report-size-mb: 100
+
+# External Services
+external:
+  ai-service:
+    url: ${AI_SERVICE_URL}
+    timeout-seconds: 30
+    retry-attempts: 3
+    circuit-breaker:
+      enabled: true
+      failure-rate-threshold: 50
+      wait-duration-in-open-state: 30000
+      sliding-window-size: 10
+  
+  notification-service:
+    url: ${NOTIFICATION_SERVICE_URL}
+    timeout-seconds: 10
+    retry-attempts: 3
+
+# Monitoring
+monitoring:
+  enabled: true
+  metrics-export-interval: 60000
+  health-check-interval: 30000
+  
+  # Distributed tracing
+  tracing:
+    enabled: true
+    sampling-rate: 0.1
+    exporter:
+      type: jaeger
+      endpoint: ${JAEGER_ENDPOINT:http://jaeger:14268/api/traces}
+
+# Performance Tuning
+performance:
+  async:
+    core-pool-size: 10
+    max-pool-size: 50
+    queue-capacity: 1000
+  
+  http:
+    max-connections: 200
+    max-connections-per-route: 50
+    connection-timeout: 5000
+    read-timeout: 30000
+
+# Backup Configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention-days: 30
+  s3:
+    bucket: ${BACKUP_S3_BUCKET}
+    region: ${AWS_REGION:ap-southeast-1}

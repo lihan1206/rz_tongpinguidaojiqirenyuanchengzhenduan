@@ -1,0 +1,433 @@
+# ==========================================
+# Global Configuration
+# ==========================================
+global:
+  environment: dev
+  imageRegistry: "ghcr.io/example"
+  imagePullSecrets: []
+  storageClass: "gp3"
+  
+# ==========================================
+# Backend Service Configuration
+# ==========================================
+backend:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: ghcr.io/example/robot-diagnosis/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  livenessProbe:
+    enabled: true
+    path: /health
+    port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    enabled: true
+    path: /ready
+    port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  env:
+    - name: DATABASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: db-credentials
+          key: url
+    - name: REDIS_URL
+      valueFrom:
+        secretKeyRef:
+          name: redis-credentials
+          key: url
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: ENVIRONMENT
+      value: "{{ .Values.global.environment }}"
+  
+  configMap:
+    enabled: true
+    data:
+      APP_NAME: "Robot Diagnosis Backend"
+      MAX_WORKERS: "4"
+      TIMEOUT: "30"
+  
+  persistence:
+    enabled: false
+
+# ==========================================
+# Frontend Service Configuration
+# ==========================================
+frontend:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: ghcr.io/example/robot-diagnosis/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  
+  livenessProbe:
+    enabled: true
+    path: /
+    port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  
+  readinessProbe:
+    enabled: true
+    path: /
+    port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 5
+  
+  env:
+    - name: API_BASE_URL
+      value: "http://backend:8000"
+    - name: ENVIRONMENT
+      value: "{{ .Values.global.environment }}"
+
+# ==========================================
+# Java Service Configuration
+# ==========================================
+javaService:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: ghcr.io/example/robot-diagnosis/java-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  
+  livenessProbe:
+    enabled: true
+    path: /actuator/health/liveness
+    port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+  
+  readinessProbe:
+    enabled: true
+    path: /actuator/health/readiness
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  
+  env:
+    - name: SPRING_PROFILES_ACTIVE
+      value: "{{ .Values.global.environment }}"
+    - name: SPRING_DATASOURCE_URL
+      valueFrom:
+        secretKeyRef:
+          name: db-credentials
+          key: url
+    - name: SPRING_REDIS_HOST
+      valueFrom:
+        secretKeyRef:
+          name: redis-credentials
+          key: host
+
+# ==========================================
+# Ingress Configuration
+# ==========================================
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+  
+  host: robot-diagnosis.example.com
+  
+  tls:
+    enabled: true
+    secretName: robot-diagnosis-tls
+  
+  paths:
+    - path: /
+      pathType: Prefix
+      service: frontend
+      port: 80
+    - path: /api
+      pathType: Prefix
+      service: backend
+      port: 8000
+    - path: /java-api
+      pathType: Prefix
+      service: java-service
+      port: 8080
+
+# ==========================================
+# Canary Deployment Configuration
+# ==========================================
+canary:
+  enabled: false
+  weight: 10
+  analysis:
+    threshold: 5
+    interval: 1m
+    successfulRunHistoryLimit: 3
+    metrics:
+      - name: request-success-rate
+        thresholdRange:
+          min: 99
+        interval: 1m
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 1m
+
+# ==========================================
+# Database Configuration
+# ==========================================
+mysql:
+  enabled: false  # Use external RDS in production
+  
+  auth:
+    rootPassword: ""
+    database: robot_diagnosis
+    username: dbuser
+    existingSecret: db-credentials
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: gp3
+    resources:
+      limits:
+        memory: 1Gi
+        cpu: 1000m
+      requests:
+        memory: 512Mi
+        cpu: 500m
+
+redis:
+  enabled: false  # Use external ElastiCache in production
+  
+  auth:
+    enabled: true
+    existingSecret: redis-credentials
+    existingSecretPasswordKey: password
+  
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: 500m
+      requests:
+        memory: 256Mi
+        cpu: 250m
+
+# ==========================================
+# Monitoring Configuration
+# ==========================================
+monitoring:
+  enabled: true
+  
+  prometheus:
+    retention: 30d
+    retentionSize: "50GB"
+    resources:
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+    storage:
+      enabled: true
+      size: 50Gi
+      storageClass: gp3
+  
+  grafana:
+    enabled: true
+    adminPassword: admin
+    persistence:
+      enabled: true
+      size: 10Gi
+    ingress:
+      enabled: true
+      hosts:
+        - grafana.robot-diagnosis.example.com
+    dashboards:
+      default:
+        robot-diagnosis-dashboard:
+          url: https://raw.githubusercontent.com/example/dashboards/main/robot-diagnosis.json
+
+# ==========================================
+# Cert Manager Configuration
+# ==========================================
+certManager:
+  enabled: true
+  installCRDs: true
+
+# ==========================================
+# External Secrets Configuration
+# ==========================================
+externalSecrets:
+  enabled: true
+  
+  secretStore:
+    aws:
+      region: ap-southeast-1
+      service: SecretsManager
+
+# ==========================================
+# Service Account Configuration
+# ==========================================
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/robot-diagnosis-app-role
+
+# ==========================================
+# Pod Security Context
+# ==========================================
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ==========================================
+# Network Policies
+# ==========================================
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+    - ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+# ==========================================
+# Pod Disruption Budget
+# ==========================================
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ==========================================
+# Pod Topology Spread Constraints
+# ==========================================
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: backend
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: backend

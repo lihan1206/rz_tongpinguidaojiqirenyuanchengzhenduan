@@ -1,0 +1,410 @@
+# ==========================================
+# Falco - Runtime Security Configuration
+# ==========================================
+
+image:
+  registry: docker.io
+  repository: falcosecurity/falco
+  tag: "0.36.0"
+  pullPolicy: IfNotPresent
+
+# Driver Configuration
+driver:
+  enabled: true
+  kind: modern_ebpf  # Options: modern_ebpf, ebpf, kmod
+  loader:
+    enabled: true
+    initContainer:
+      image:
+        registry: docker.io
+        repository: falcosecurity/falco-driver-loader
+        tag: ""
+        pullPolicy: IfNotPresent
+
+# Collectors for Kubernetes metadata
+collectors:
+  enabled: true
+  docker:
+    enabled: false
+    socket: /var/run/docker.sock
+  containerd:
+    enabled: true
+    socket: /run/containerd/containerd.sock
+  crio:
+    enabled: true
+    socket: /run/crio/crio.sock
+  kubernetes:
+    enabled: true
+
+# Falco Configuration
+falco:
+  rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/rules.d
+
+  # Watch config files and rules for changes
+  watch_config_files: true
+
+  # Time interval for incremental outputs
+  time_format_iso_8601: false
+
+  # Falco logging
+  stdout_output:
+    enabled: true
+
+  syslog_output:
+    enabled: false
+
+  file_output:
+    enabled: false
+    filename: ./events.log
+    keep_alive: false
+
+  http_output:
+    enabled: true
+    url: http://falco-falcosidekick:2801/
+    user_agent: "falcosecurity/falco"
+
+  program_output:
+    enabled: false
+    keep_alive: false
+    program: "jq '{text: .output}' | curl -d @- -X POST https://hooks.slack.com/services/XXX"
+
+  # gRPC server configuration
+  grpc:
+    enabled: true
+    bind_address: unix:///run/falco/falco.sock
+    threadiness: 0
+
+  grpc_output:
+    enabled: true
+
+# Falco Webserver
+webserver:
+  enabled: true
+  threadiness: 0
+  listen_port: 8765
+  listen_address: 0.0.0.0
+  k8s_healthz_endpoint: /healthz
+  ssl_enabled: false
+  ssl_certificate: /etc/falco/certs/server.crt
+
+# Falcoctl configuration
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+    follow:
+      enabled: true
+  config:
+    indexes:
+      - name: falcosecurity
+        url: https://falcosecurity.github.io/falcoctl/index.yaml
+    artifact:
+      install:
+        refs:
+          - falco-rules:2
+      follow:
+        refs:
+          - falco-rules:2
+
+# Custom Rules
+customRules:
+  rules-robot-diagnosis.yaml: |
+    - rule: Terminal Shell in Container
+      desc: Detects a terminal shell being spawned in a container
+      condition: spawned_process and container and shell_procs and proc.tty != 0
+      output: >
+        Terminal shell in container
+        (user=%user.name user_loginuid=%user.loginuid %proc.info
+        shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline
+        container_id=%container.id container_name=%container.name image=%container.image.repository)
+      priority: WARNING
+
+    - rule: Unauthorized Process in Container
+      desc: Detects processes not in the allowed list running in containers
+      condition: spawned_process and container and not allowed_containers
+      output: >
+        Unauthorized process in container
+        (user=%user.name command=%proc.cmdline
+        container_name=%container.name image=%container.image.repository)
+      priority: WARNING
+
+    - rule: Write to /etc
+      desc: Detects writes to /etc directory
+      condition: write_etc_common
+      output: >
+        File below /etc opened for writing
+        (user=%user.name command=%proc.cmdline file=%fd.name parent=%proc.pname pcmdline=%proc.pcmdline gparent=%proc.aname[2])
+      priority: ERROR
+
+    - rule: Read sensitive file untrusted
+      desc: Detects reads of sensitive files by non-trusted programs
+      condition: sensitive_files and open_read and server_procs and not proc.name in (user_mgmt_binaries, userexec_binaries, package_mgmt_binaries, cron_binaries, read_sensitive_file_binaries, shell_binaries, sshd, sudo, dockerd, kubectl)
+      output: >
+        Sensitive file opened for reading by non-trusted program
+        (user=%user.name command=%proc.cmdline file=%fd.name parent=%proc.pname gparent=%proc.aname[2])
+      priority: WARNING
+
+    - rule: Run shell untrusted
+      desc: Detects shell spawned by non-shell processes
+      condition: spawned_process and shell_procs and not proc.pname in (cron_binaries, shell_binaries, sshd, sudo, dockerd, kubectl, containerd)
+      output: >
+        Shell spawned by untrusted binary
+        (user=%user.name shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline pcmdline=%proc.pcmdline gparent=%proc.aname[2])
+      priority: WARNING
+
+    - rule: DB program spawned process
+      desc: Detects a database program spawning a process
+      condition: spawned_process and db_server_procs and not proc.name in (db_server_binaries, shell_binaries)
+      output: >
+        Database-related program spawned process
+        (user=%user.name command=%proc.cmdline file=%fd.name parent=%proc.pname)
+      priority: NOTICE
+
+    - rule: Modify binary dirs
+      desc: Detects modification of binary directories
+      condition: modify and (bin_dir_rename or bin_dir_mkdir)
+      output: >
+        File below known binary directory renamed/created
+        (user=%user.name command=%proc.cmdline operation=%evt.type file=%fd.name %evt.args)
+      priority: ERROR
+
+    - rule: Mkdir binary dirs
+      desc: Detects creation of directories in binary paths
+      condition: mkdir and bin_dir_mkdir
+      output: >
+        Directory below known binary directory created
+        (user=%user.name command=%proc.cmdline directory=%evt.arg path=%fd.name)
+      priority: ERROR
+
+    - rule: Change thread namespace
+      desc: Detects changes to process namespaces
+      condition: spawned_process and inbound_outbound and changing_thread_namespace
+      output: >
+        Namespace change (setns) by unexpected program
+        (user=%user.name command=%proc.cmdline parent=%proc.pname %container.info)
+      priority: NOTICE
+
+    - rule: Run shell in container
+      desc: Detects shell spawned in a container
+      condition: spawned_process and container and shell_procs
+      output: >
+        Shell spawned in a container other than entrypoint
+        (user=%user.name shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline pcmdline=%proc.pcmdline gparent=%proc.aname[2] container_id=%container.id container_name=%container.name)
+      priority: WARNING
+
+    - rule: Contact EC2 Metadata Service From Container
+      desc: Detects attempts to contact EC2 metadata service from container
+      condition: outbound and fd.sip="169.254.169.254" and container and not ec2_metadata_containers
+      output: >
+        Outbound connection to EC2 instance metadata service
+        (command=%proc.cmdline connection=%fd.name %container.info image=%container.image.repository)
+      priority: NOTICE
+
+    - rule: Contact Cloud Metadata Service From Container
+      desc: Detects attempts to contact cloud metadata service from container
+      condition: outbound and fd.sip in ("169.254.169.254", "169.254.170.2") and container and not ec2_metadata_containers
+      output: >
+        Outbound connection to cloud instance metadata service
+        (command=%proc.cmdline connection=%fd.name %container.info image=%container.image.repository)
+      priority: NOTICE
+
+    # Robot Diagnosis specific rules
+    - rule: Suspicious Python Execution
+      desc: Detects suspicious Python script execution
+      condition: spawned_process and proc.name = python and (proc.args contains "socket" or proc.args contains "subprocess" or proc.args contains "os.system")
+      output: >
+        Suspicious Python execution detected
+        (user=%user.name command=%proc.cmdline parent=%proc.pname container=%container.name)
+      priority: WARNING
+
+    - rule: Java Process Suspicious Activity
+      desc: Detects suspicious Java process behavior
+      condition: spawned_process and proc.name = java and (proc.args contains "-agentlib" or proc.args contains "-javaagent")
+      output: >
+        Java process with debugging/agent options
+        (user=%user.name command=%proc.cmdline container=%container.name)
+      priority: NOTICE
+
+    - list: allowed_containers
+      items: [nginx, backend, frontend, java-service, redis, mysql]
+
+    - macro: db_server_procs
+      condition: (proc.name in (mysqld, postgres, mongod, redis-server))
+
+    - macro: db_server_binaries
+      condition: (proc.name in (mysqld, postgres, mongod, redis-server))
+
+    - macro: shell_procs
+      condition: (proc.name in (bash, sh, zsh, csh, tcsh, ksh))
+
+    - macro: server_procs
+      condition: (proc.name in (nginx, python, java, node))
+
+    - macro: ec2_metadata_containers
+      condition: (container.image.repository in (amazon/aws-cli, amazonlinux))
+
+# Falcosidekick configuration
+falcosidekick:
+  enabled: true
+  config:
+    debug: false
+    # Slack configuration
+    slack:
+      webhookurl: ""
+      # outputformat: "all"
+      # minimumpriority: ""
+      # messageformat: "Alert : *{{ .Priority }}* {{ .Output }}"
+    
+    # Webhook configuration
+    webhook:
+      address: ""
+      # customHeaders: ""
+      # method: "POST"
+      # minimumpriority: ""
+    
+    # AWS configuration
+    aws:
+      # accesskeyid: ""
+      # secretaccesskey: ""
+      # region: ""
+      lambda:
+        functionname: ""
+        minimumpriority: ""
+      sns:
+        topicarn: ""
+        rawjson: false
+        minimumpriority: ""
+    
+    # Elasticsearch configuration
+    elasticsearch:
+      hostport: ""
+      index: "falco"
+      type: "event"
+      minimumpriority: ""
+      # suffix: "daily"
+      # mutualtls: false
+      # checkcert: true
+      # username: ""
+      # password: ""
+    
+    # Loki configuration
+    loki:
+      hostport: "http://loki:3100"
+      # minimumpriority: ""
+      # mutualtls: false
+      # checkcert: true
+      # tenant: ""
+
+  webui:
+    enabled: true
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 2802
+    ingress:
+      enabled: true
+      className: nginx
+      hosts:
+        - host: falco-ui.robot-diagnosis.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: falco-ui-tls
+          hosts:
+            - falco-ui.robot-diagnosis.example.com
+
+# Resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC
+rbac:
+  create: true
+
+# Pod Security Policy
+podSecurityPolicy:
+  create: false
+
+# Priority Class
+priorityClassName: ""
+
+# Node Selector
+nodeSelector: {}
+
+# Tolerations
+tolerations:
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+
+# Affinity
+affinity: {}
+
+# Pod Annotations
+podAnnotations: {}
+
+# Pod Labels
+podLabels: {}
+
+# Extra Volumes
+extraVolumes: []
+
+# Extra Volume Mounts
+extraVolumeMounts: []
+
+# Extra Containers
+extraContainers: []
+
+# Extra Init Containers
+extraInitContainers: []
+
+# Update Strategy
+updateStrategy:
+  type: RollingUpdate
+
+# Health Checks
+healthChecks:
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8765
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 8765
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Metrics
+metrics:
+  enabled: true
+  port: 8765
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      release: prometheus

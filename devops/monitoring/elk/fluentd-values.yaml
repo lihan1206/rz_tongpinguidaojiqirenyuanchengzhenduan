@@ -1,0 +1,277 @@
+# ==========================================
+# Fluentd Configuration for EFK Stack
+# ==========================================
+
+image:
+  repository: fluent/fluentd-kubernetes-daemonset
+  tag: v1.16-debian-elasticsearch8-1
+  pullPolicy: IfNotPresent
+
+# DaemonSet or Deployment
+daemonSet: true
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC
+rbac:
+  create: true
+  rules: []
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+  annotations: {}
+
+# Priority Class
+priorityClassName: ""
+
+# Pod Annotations
+podAnnotations: {}
+
+# Pod Labels
+podLabels: {}
+
+# Update Strategy
+updateStrategy: {}
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxUnavailable: 1
+
+# Node Selector
+nodeSelector: {}
+
+# Affinity
+affinity: {}
+
+# Tolerations
+tolerations:
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+
+# Extra Volumes
+extraVolumes: []
+
+# Extra Volume Mounts
+extraVolumeMounts: []
+
+# ConfigMap Values
+configMapFiles:
+  fluent.conf: |
+    # Fluentd main configuration
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-docker.pos
+      tag kubernetes.*
+      <parse>
+        @type multi_format
+        <pattern>
+          format json
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%NZ
+          keep_time_key true
+        </pattern>
+        <pattern>
+          format regexp
+          expression /^(?<time>.+) (?<stream>stdout|stderr) [^ ]* (?<log>.*)$/
+          time_format %Y-%m-%dT%H:%M:%S.%N%:z
+        </pattern>
+      </parse>
+    </source>
+
+    # Filter to add Kubernetes metadata
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+      @id filter_kube_metadata
+      kubernetes_url https://kubernetes.default.svc
+      verify_ssl true
+      ca_file /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file /var/run/secrets/kubernetes.io/serviceaccount/token
+      skip_labels false
+      skip_container_metadata false
+      skip_master_url false
+      skip_namespace_metadata false
+    </filter>
+
+    # Parse JSON logs
+    <filter kubernetes.**>
+      @type parser
+      format json
+      key_name log
+      reserve_data true
+      time_key time
+      time_format %Y-%m-%dT%H:%M:%S.%NZ
+      keep_time_key true
+      emit_invalid_record_to_error false
+    </filter>
+
+    # Add environment tag
+    <filter kubernetes.**>
+      @type record_transformer
+      <record>
+        environment ${ENV['ENVIRONMENT']}
+        cluster ${ENV['CLUSTER_NAME']}
+      </record>
+    </filter>
+
+    # Exclude health check logs
+    <filter kubernetes.**>
+      @type grep
+      <exclude>
+        key $.kubernetes.labels.app
+        pattern /^kube-/
+      </exclude>
+    </filter>
+
+    # Output to Elasticsearch
+    <match kubernetes.**>
+      @type elasticsearch
+      @id out_es
+      @log_level info
+      include_tag_key true
+      host "elasticsearch-master"
+      port 9200
+      path ""
+      scheme https
+      ssl_verify false
+      ssl_version TLSv1_2
+      user "elastic"
+      password "${ELASTIC_PASSWORD}"
+      
+      # Index settings
+      index_name "kubernetes-logs"
+      logstash_format true
+      logstash_prefix "kubernetes"
+      logstash_dateformat "%Y.%m.%d"
+      
+      # Buffer settings
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        retry_type exponential_backoff
+        flush_thread_count 2
+        flush_interval 5s
+        retry_forever false
+        retry_max_interval 30
+        chunk_limit_size 2M
+        queue_limit_length 8
+        total_limit_size 500M
+      </buffer>
+    </match>
+
+    # System logs
+    <source>
+      @type tail
+      @id in_tail_dmesg
+      path /var/log/dmesg
+      pos_file /var/log/fluentd-dmesg.log.pos
+      tag kernel
+      <parse>
+        @type syslog
+      </parse>
+    </source>
+
+    <source>
+      @type tail
+      @id in_tail_syslog
+      path /var/log/syslog
+      pos_file /var/log/fluentd-syslog.log.pos
+      tag system
+      <parse>
+        @type syslog
+      </parse>
+    </source>
+
+# Environment Variables
+env:
+  - name: FLUENT_ELASTICSEARCH_HOST
+    value: "elasticsearch-master"
+  - name: FLUENT_ELASTICSEARCH_PORT
+    value: "9200"
+  - name: FLUENT_ELASTICSEARCH_SCHEME
+    value: "https"
+  - name: FLUENT_ELASTICSEARCH_USER
+    value: "elastic"
+  - name: FLUENT_ELASTICSEARCH_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: elasticsearch-master-credentials
+        key: password
+  - name: ENVIRONMENT
+    value: "production"
+  - name: CLUSTER_NAME
+    value: "robot-diagnosis-eks"
+
+# Volume Mounts
+volumeMounts:
+  - name: varlog
+    mountPath: /var/log
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+  - name: fluentd-buffer
+    mountPath: /var/log/fluentd-buffers
+
+# Volumes
+volumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: varlibdockercontainers
+    hostPath:
+      path: /var/lib/docker/containers
+  - name: fluentd-buffer
+    hostPath:
+      path: /var/log/fluentd-buffers
+      type: DirectoryOrCreate
+
+# Service
+service:
+  type: ClusterIP
+  ports:
+    - name: forward
+      port: 24224
+      targetPort: 24224
+      protocol: TCP
+    - name: http
+      port: 9880
+      targetPort: 9880
+      protocol: TCP
+
+# Metrics
+metrics:
+  enabled: true
+  service:
+    port: 24231
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      release: prometheus
+
+# Pod Security Context
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
+
+# Security Context
+securityContext:
+  privileged: true

@@ -1,0 +1,831 @@
+openapi: 3.0.3
+info:
+  title: Robot Diagnosis System API
+  description: |
+    # Robot Diagnosis System API Documentation
+    
+    This API provides endpoints for managing robot fault diagnosis, sensor data,
+    maintenance tickets, and system configuration.
+    
+    ## Features
+    - Real-time sensor data monitoring
+    - AI-powered fault diagnosis
+    - Maintenance ticket management
+    - Audit logging
+    - System configuration
+    
+    ## Authentication
+    All API endpoints require Bearer token authentication. Include the token in the
+    Authorization header: `Authorization: Bearer <token>`
+    
+    ## Rate Limiting
+    API requests are limited to 100 requests per second per API key.
+    
+  version: 1.0.0
+  contact:
+    name: DevOps Team
+    email: devops@example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: https://api.robot-diagnosis.example.com/v1
+    description: Production server
+  - url: https://staging-api.robot-diagnosis.example.com/v1
+    description: Staging server
+  - url: http://localhost:8000/v1
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Robots
+    description: Robot management endpoints
+  - name: Sensors
+    description: Sensor data and monitoring
+  - name: Faults
+    description: Fault detection and diagnosis
+  - name: Tickets
+    description: Maintenance ticket management
+  - name: Audits
+    description: Audit logging and compliance
+  - name: System
+    description: System configuration and health
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and return access token
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Refresh expired access token using refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /robots:
+    get:
+      tags:
+        - Robots
+      summary: List all robots
+      description: Retrieve a paginated list of all robots
+      operationId: listRobots
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, maintenance, error]
+      responses:
+        '200':
+          description: List of robots
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RobotListResponse'
+
+    post:
+      tags:
+        - Robots
+      summary: Create a new robot
+      description: Register a new robot in the system
+      operationId: createRobot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RobotCreateRequest'
+      responses:
+        '201':
+          description: Robot created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Robot'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+
+  /robots/{robotId}:
+    get:
+      tags:
+        - Robots
+      summary: Get robot details
+      description: Retrieve detailed information about a specific robot
+      operationId: getRobot
+      parameters:
+        - $ref: '#/components/parameters/RobotIdParam'
+      responses:
+        '200':
+          description: Robot details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Robot'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Robots
+      summary: Update robot
+      description: Update robot information
+      operationId: updateRobot
+      parameters:
+        - $ref: '#/components/parameters/RobotIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RobotUpdateRequest'
+      responses:
+        '200':
+          description: Robot updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Robot'
+
+    delete:
+      tags:
+        - Robots
+      summary: Delete robot
+      description: Remove a robot from the system
+      operationId: deleteRobot
+      parameters:
+        - $ref: '#/components/parameters/RobotIdParam'
+      responses:
+        '204':
+          description: Robot deleted successfully
+
+  /sensors/data:
+    post:
+      tags:
+        - Sensors
+      summary: Submit sensor data
+      description: Submit real-time sensor data from robots
+      operationId: submitSensorData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensorDataRequest'
+      responses:
+        '202':
+          description: Data accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorDataResponse'
+
+  /sensors/data/{robotId}:
+    get:
+      tags:
+        - Sensors
+      summary: Get sensor data history
+      description: Retrieve historical sensor data for a robot
+      operationId: getSensorDataHistory
+      parameters:
+        - $ref: '#/components/parameters/RobotIdParam'
+        - name: startTime
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: endTime
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: sensorType
+          in: query
+          schema:
+            type: string
+            enum: [temperature, vibration, position, current, voltage]
+      responses:
+        '200':
+          description: Sensor data history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorDataHistoryResponse'
+
+  /faults/diagnose:
+    post:
+      tags:
+        - Faults
+      summary: Run fault diagnosis
+      description: Run AI-powered fault diagnosis on robot data
+      operationId: diagnoseFault
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisRequest'
+      responses:
+        '200':
+          description: Diagnosis result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosisResult'
+
+  /faults/{faultId}:
+    get:
+      tags:
+        - Faults
+      summary: Get fault details
+      description: Retrieve details of a specific fault
+      operationId: getFault
+      parameters:
+        - $ref: '#/components/parameters/FaultIdParam'
+      responses:
+        '200':
+          description: Fault details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Fault'
+
+  /tickets:
+    get:
+      tags:
+        - Tickets
+      summary: List maintenance tickets
+      description: Retrieve a list of maintenance tickets
+      operationId: listTickets
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, in_progress, resolved, closed]
+      responses:
+        '200':
+          description: List of tickets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketListResponse'
+
+    post:
+      tags:
+        - Tickets
+      summary: Create maintenance ticket
+      description: Create a new maintenance ticket
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCreateRequest'
+      responses:
+        '201':
+          description: Ticket created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+
+  /system/health:
+    get:
+      tags:
+        - System
+      summary: System health check
+      description: Check the health status of the system
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /system/metrics:
+    get:
+      tags:
+        - System
+      summary: System metrics
+      description: Retrieve system performance metrics
+      operationId: getMetrics
+      responses:
+        '200':
+          description: System metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemMetrics'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number (0-indexed)
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+
+    RobotIdParam:
+      name: robotId
+      in: path
+      required: true
+      description: Unique robot identifier
+      schema:
+        type: string
+        pattern: '^[A-Z0-9]{8,16}$'
+
+    FaultIdParam:
+      name: faultId
+      in: path
+      required: true
+      description: Unique fault identifier
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        password:
+          type: string
+          minLength: 8
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+        tokenType:
+          type: string
+          default: Bearer
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+
+    Robot:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        serialNumber:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, maintenance, error]
+        location:
+          type: string
+        installedDate:
+          type: string
+          format: date-time
+        lastMaintenanceDate:
+          type: string
+          format: date-time
+        sensors:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sensor'
+
+    RobotCreateRequest:
+      type: object
+      required:
+        - name
+        - model
+        - serialNumber
+      properties:
+        name:
+          type: string
+        model:
+          type: string
+        serialNumber:
+          type: string
+        location:
+          type: string
+
+    RobotUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        location:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, maintenance, error]
+
+    RobotListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Robot'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Sensor:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [temperature, vibration, position, current, voltage]
+        unit:
+          type: string
+        status:
+          type: string
+          enum: [normal, warning, critical]
+
+    SensorDataRequest:
+      type: object
+      required:
+        - robotId
+        - timestamp
+        - readings
+      properties:
+        robotId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        readings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SensorReading'
+
+    SensorReading:
+      type: object
+      properties:
+        sensorId:
+          type: string
+        value:
+          type: number
+          format: float
+        unit:
+          type: string
+
+    SensorDataResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [accepted, rejected]
+        message:
+          type: string
+
+    SensorDataHistoryResponse:
+      type: object
+      properties:
+        robotId:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SensorDataPoint'
+
+    SensorDataPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        value:
+          type: number
+          format: float
+        status:
+          type: string
+
+    DiagnosisRequest:
+      type: object
+      required:
+        - robotId
+        - sensorData
+      properties:
+        robotId:
+          type: string
+        sensorData:
+          type: array
+          items:
+            $ref: '#/components/schemas/SensorReading'
+        analysisType:
+          type: string
+          enum: [realtime, comprehensive, predictive]
+          default: realtime
+
+    DiagnosisResult:
+      type: object
+      properties:
+        diagnosisId:
+          type: string
+        robotId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [normal, warning, critical]
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+        recommendations:
+          type: array
+          items:
+            type: string
+
+    Finding:
+      type: object
+      properties:
+        type:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        description:
+          type: string
+        affectedComponents:
+          type: array
+          items:
+            type: string
+
+    Fault:
+      type: object
+      properties:
+        id:
+          type: string
+        robotId:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [detected, diagnosed, repairing, resolved]
+        detectedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+        description:
+          type: string
+
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+        robotId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        status:
+          type: string
+          enum: [open, in_progress, resolved, closed]
+        assignedTo:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TicketCreateRequest:
+      type: object
+      required:
+        - robotId
+        - title
+        - description
+      properties:
+        robotId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+          default: medium
+
+    TicketListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalPages:
+          type: integer
+        totalItems:
+          type: integer
+        hasNext:
+          type: boolean
+        hasPrevious:
+          type: boolean
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+        timestamp:
+          type: string
+          format: date-time
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+              details:
+                type: object
+
+    SystemMetrics:
+      type: object
+      properties:
+        uptime:
+          type: integer
+        memory:
+          type: object
+          properties:
+            used:
+              type: integer
+            total:
+              type: integer
+            percentage:
+              type: number
+        cpu:
+          type: object
+          properties:
+            usage:
+              type: number
+        requests:
+          type: object
+          properties:
+            total:
+              type: integer
+            perSecond:
+              type: number
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequestError:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    UnauthorizedError:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

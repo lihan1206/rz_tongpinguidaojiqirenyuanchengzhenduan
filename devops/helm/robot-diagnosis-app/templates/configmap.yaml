@@ -1,0 +1,12 @@
+{{- if and .Values.backend.enabled .Values.backend.configMap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "robot-diagnosis.fullname" . }}-backend
+  labels:
+    {{- include "robot-diagnosis.backend.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.backend.configMap.data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}
